@@ -42,7 +42,7 @@ supabase/
 - `useUserRole`
 - `useGeolocation`
 - `useEmergencyReports`
-- `useDispatch`
+- `useDispatchNearestAmbulance`
 - `useAmbulanceTracking`
 - `usePatientMonitoring`
 - `useTeamChat`
@@ -80,6 +80,7 @@ supabase/
 - `send-push-notification`
 - `voice-to-text`
 - `sync-offline-actions`
+- `update-ambulance-location`
 
 ## Seed Data Demo
 Gunakan migration seed `202604280002_seed_demo.sql` untuk menyiapkan data awal demo dashboard, emergency reports, tracking, dan chat.
@@ -98,3 +99,7 @@ Gunakan migration seed `202604280002_seed_demo.sql` untuk menyiapkan data awal d
 - Integrasi Capacitor config + native permission prompt flow.
 - RLS policy final per role (reporter, ambulance_driver, paramedic, doctor, dispatcher, admin, super_admin).
 - E2E test untuk skenario panic-flow dan dispatch-flow.
+
+
+## Arsitektur Backend Detail
+- Lihat `docs/backend-architecture.md` untuk penjelasan arsitektur lengkap, RLS, flow dispatch, retention policy, dan testing checklist.
