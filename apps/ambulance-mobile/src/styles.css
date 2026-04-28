@@ -1,4 +1,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #f8fafc; }
+
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+body { margin: 0; }
+button, input, textarea { min-height: 44px; }

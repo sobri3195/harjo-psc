@@ -1,7 +1,20 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { EmergencyReport, UserRole } from '@harjo/types';
 import { supabase } from '../supabase/client';
+
+const realtimeTables = [
+  'emergency_reports',
+  'ambulance_tracking',
+  'emergency_dispatches',
+  'locations',
+  'patient_monitoring',
+  'team_chat',
+  'alert_broadcasts',
+  'notification_queue'
+] as const;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const useAuth = () =>
   useQuery({
@@ -21,16 +34,15 @@ export const useUserRole = () =>
 export const useGeolocation = () =>
   useQuery({
     queryKey: ['geolocation'],
-    queryFn: async () => {
-      return await new Promise<GeolocationPosition>((resolve, reject) => {
+    queryFn: async () =>
+      await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 7000,
-          maximumAge: 10000
+          maximumAge: 8000
         });
-      });
-    },
-    staleTime: 10000
+      }),
+    staleTime: 15000
   });
 
 export const useEmergencyReports = () => {
@@ -38,7 +50,7 @@ export const useEmergencyReports = () => {
 
   useEffect(() => {
     const channel = supabase
-      .channel('emergency-reports')
+      .channel('emergency-reports-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'emergency_reports' }, () => {
         queryClient.invalidateQueries({ queryKey: ['emergency-reports'] });
       })
@@ -52,9 +64,23 @@ export const useEmergencyReports = () => {
   return useQuery({
     queryKey: ['emergency-reports'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('emergency_reports').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('emergency_reports')
+        .select('*')
+        .order('created_at', { ascending: false });
       if (error) throw error;
-      return (data ?? []) as EmergencyReport[];
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        reporterId: row.reporter_id,
+        type: row.type,
+        severity: row.severity,
+        victimCount: row.victim_count,
+        description: row.description,
+        latitude: row.latitude ?? 0,
+        longitude: row.longitude ?? 0,
+        status: row.status,
+        createdAt: row.created_at
+      })) as EmergencyReport[];
     }
   });
 };
@@ -68,16 +94,24 @@ export const useDispatch = () =>
     }
   });
 
-export const useAmbulanceTracking = () =>
-  useQuery({
+export const useAmbulanceTracking = () => {
+  const [lastRefetchAt, setLastRefetchAt] = useState(Date.now());
+
+  return useQuery({
     queryKey: ['ambulance-tracking'],
     queryFn: async () => {
+      const now = Date.now();
+      if (now - lastRefetchAt < 1800) {
+        await wait(1800 - (now - lastRefetchAt));
+      }
+      setLastRefetchAt(Date.now());
       const { data, error } = await supabase.from('ambulance_tracking').select('*').order('updated_at', { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
-    refetchInterval: 5000
+    refetchInterval: 4500
   });
+};
 
 export const usePatientMonitoring = (emergencyId?: string) =>
   useQuery({
@@ -130,4 +164,25 @@ export const useOfflineSync = () => {
     }),
     [queryClient]
   );
+};
+
+export const useRealtimeSubscriptions = () => {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const channels = realtimeTables.map((table) =>
+      supabase
+        .channel(`rt-${table}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+          queryClient.invalidateQueries();
+        })
+        .subscribe()
+    );
+
+    return () => {
+      channels.forEach((channel) => {
+        void supabase.removeChannel(channel);
+      });
+    };
+  }, [queryClient]);
 };

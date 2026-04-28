@@ -1,20 +1,22 @@
 # Harjo Emergency Response Platform Monorepo
 
-Monorepo ini menyiapkan 3 produk dalam 1 ekosistem:
-- `apps/emergency-mobile` — Harjo Emergency App (pelapor/pasien internal)
-- `apps/ambulance-mobile` — Harjo Ambulance / Medical Response App
-- `apps/command-monitor` — Harjo Command Monitor (dispatcher/admin)
+Monorepo ini membangun 3 produk mission-critical dalam 1 ekosistem:
+- `apps/emergency-mobile` — Harjo Emergency App (pelapor/personel/pasien internal).
+- `apps/ambulance-mobile` — Harjo Ambulance / Medical Response App.
+- `apps/command-monitor` — Harjo Command Monitor (dispatcher/admin/command center).
 
-## Stack
-- React 18 + TypeScript strict + Vite
-- React Router DOM
-- TanStack React Query
-- Supabase Auth / Postgres / Realtime / Storage / Edge Functions
-- Paket bersama: `@harjo/ui`, `@harjo/types`, `@harjo/lib`
+## Stack Utama
+- React 18 + TypeScript strict + Vite.
+- Tailwind CSS + komponen reusable `@harjo/ui` (shadcn-friendly architecture).
+- React Router DOM.
+- TanStack React Query.
+- Supabase (Auth, Database/PostgreSQL, Realtime, Storage, Edge Functions).
+- Struktur siap untuk Leaflet/Mapbox lazy-loading.
+- PWA-ready dan Capacitor-ready (Android/iOS) melalui konfigurasi per-app.
 
-## Struktur
+## Struktur Monorepo
 
-```
+```txt
 apps/
   emergency-mobile/
   ambulance-mobile/
@@ -28,38 +30,14 @@ supabase/
   functions/
 ```
 
-## Setup lokal
-1. Install dependency:
-   ```bash
-   pnpm install
-   ```
-2. Buat `.env` pada masing-masing app:
-   ```bash
-   VITE_SUPABASE_URL=...
-   VITE_SUPABASE_ANON_KEY=...
-   ```
-3. Jalankan development:
-   ```bash
-   pnpm dev
-   ```
-
-## Routing utama
+## Routing
 - `/emergency-mobile`
 - `/ambulance-mobile`
 - `/command-monitor`
 - `/auth`
 - `/not-found`
 
-## Supabase
-- Migration schema dasar ada di `supabase/migrations/202604280001_init.sql`
-- Seed demo ada di `supabase/migrations/202604280002_seed_demo.sql`
-- Edge Functions:
-  - `dispatch-nearest-ambulance`
-  - `send-push-notification`
-  - `voice-to-text`
-  - `sync-offline-actions`
-
-## Hooks domain (`@harjo/lib`)
+## Domain Hooks (`@harjo/lib`)
 - `useAuth`
 - `useUserRole`
 - `useGeolocation`
@@ -70,16 +48,53 @@ supabase/
 - `useTeamChat`
 - `useNotifications`
 - `useOfflineSync`
+- `useRealtimeSubscriptions`
 
-## Catatan UX
-- Default light mode professional, fokus keterbacaan saat panik.
-- Touch target minimum 44px untuk tombol kritikal.
-- Emergency CTA ditempatkan menonjol di aplikasi mobile pelapor.
-- Realtime subscription sudah disiapkan untuk tabel inti operasi command center.
+## Setup Lokal
+1. Install dependency:
+   ```bash
+   pnpm install
+   ```
+2. Tambahkan env di setiap app (`apps/*/.env`):
+   ```bash
+   VITE_SUPABASE_URL=...
+   VITE_SUPABASE_ANON_KEY=...
+   ```
+3. Jalankan dev semua app:
+   ```bash
+   pnpm dev
+   ```
+4. Typecheck:
+   ```bash
+   pnpm typecheck
+   ```
 
-## Tahap lanjutan yang disarankan
-- Integrasi map (Leaflet/Mapbox) per app dengan lazy loading.
-- PWA manifest + service worker + strategi offline cache.
-- Capacitor config untuk Android/iOS build.
-- Hardening RLS policy per role dan audit trails lebih detail.
-- Komponen shadcn/ui penuh + Tailwind token design system.
+## Supabase
+### Migration
+- `supabase/migrations/202604280001_init.sql` — schema inti.
+- `supabase/migrations/202604280002_seed_demo.sql` — seed demo.
+- `supabase/migrations/202604280003_locations_realtime.sql` — tabel `locations` untuk realtime tracking.
+
+### Edge Functions
+- `dispatch-nearest-ambulance`
+- `send-push-notification`
+- `voice-to-text`
+- `sync-offline-actions`
+
+## Seed Data Demo
+Gunakan migration seed `202604280002_seed_demo.sql` untuk menyiapkan data awal demo dashboard, emergency reports, tracking, dan chat.
+
+## Catatan UX/Operasional
+- Bahasa UI Indonesia singkat dan jelas.
+- Emergency CTA menonjol pada mobile pelapor.
+- Status online/offline, GPS, notifikasi, dan alur status insiden selalu terlihat.
+- Safe touch target minimum 44px di mobile.
+- Warna merah dipakai terbatas untuk kondisi kritis.
+- Offline action di-app ambulans disimpan ke `sync_queue`.
+
+## Next Hardening
+- Integrasi map production (Leaflet/Mapbox + cluster + route engine).
+- Implement service worker PWA dan background sync.
+- Integrasi Capacitor config + native permission prompt flow.
+- RLS policy final per role (reporter, ambulance_driver, paramedic, doctor, dispatcher, admin, super_admin).
+- E2E test untuk skenario panic-flow dan dispatch-flow.
