@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { EmergencyReport, UserRole } from '@harjo/types';
+import type {
+  DispatchNearestAmbulanceInput,
+  EmergencyReport,
+  PushNotificationInput,
+  SyncOfflineActionInput,
+  UpdateAmbulanceLocationInput,
+  UserRole,
+  VoiceToTextInput
+} from '@harjo/types';
 import { supabase } from '../supabase/client';
 
 const realtimeTables = [
@@ -45,7 +53,7 @@ export const useGeolocation = () =>
     staleTime: 15000
   });
 
-export const useEmergencyReports = () => {
+export const useEmergencyReports = (page = 1, pageSize = 20) => {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -62,12 +70,15 @@ export const useEmergencyReports = () => {
   }, [queryClient]);
 
   return useQuery({
-    queryKey: ['emergency-reports'],
+    queryKey: ['emergency-reports', page, pageSize],
     queryFn: async () => {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
       const { data, error } = await supabase
         .from('emergency_reports')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, to);
       if (error) throw error;
       return (data ?? []).map((row) => ({
         id: row.id,
@@ -85,10 +96,37 @@ export const useEmergencyReports = () => {
   });
 };
 
-export const useDispatch = () =>
+export const useDispatchNearestAmbulance = () =>
   useMutation({
-    mutationFn: async (emergencyId: string) => {
-      const { data, error } = await supabase.functions.invoke('dispatch-nearest-ambulance', { body: { emergencyId } });
+    mutationFn: async (payload: DispatchNearestAmbulanceInput) => {
+      const { data, error } = await supabase.functions.invoke('dispatch-nearest-ambulance', { body: payload });
+      if (error) throw error;
+      return data;
+    }
+  });
+
+export const useSendPushNotification = () =>
+  useMutation({
+    mutationFn: async (payload: PushNotificationInput) => {
+      const { data, error } = await supabase.functions.invoke('send-push-notification', { body: payload });
+      if (error) throw error;
+      return data;
+    }
+  });
+
+export const useVoiceToText = () =>
+  useMutation({
+    mutationFn: async (payload: VoiceToTextInput) => {
+      const { data, error } = await supabase.functions.invoke('voice-to-text', { body: payload });
+      if (error) throw error;
+      return data;
+    }
+  });
+
+export const useUpdateAmbulanceLocation = () =>
+  useMutation({
+    mutationFn: async (payload: UpdateAmbulanceLocationInput) => {
+      const { data, error } = await supabase.functions.invoke('update-ambulance-location', { body: payload });
       if (error) throw error;
       return data;
     }
@@ -139,11 +177,17 @@ export const useTeamChat = (emergencyId?: string) =>
     }
   });
 
-export const useNotifications = () =>
+export const useNotifications = (page = 1, pageSize = 50) =>
   useQuery({
-    queryKey: ['notification-queue'],
+    queryKey: ['notification-queue', page, pageSize],
     queryFn: async () => {
-      const { data, error } = await supabase.from('notification_queue').select('*').order('created_at', { ascending: false });
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const { data, error } = await supabase
+        .from('notification_queue')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, to);
       if (error) throw error;
       return data ?? [];
     }
@@ -154,11 +198,18 @@ export const useOfflineSync = () => {
 
   return useMemo(
     () => ({
-      enqueue: async (payload: unknown) => {
-        await supabase.from('sync_queue').insert({ payload, status: 'pending' });
+      enqueue: async (action: SyncOfflineActionInput) => {
+        await supabase.from('sync_queue').insert({
+          action_type: action.action_type,
+          payload: action.payload,
+          client_action_id: action.idempotency_key,
+          status: 'pending'
+        });
       },
-      flush: async () => {
-        await supabase.functions.invoke('sync-offline-actions');
+      flush: async (actions: SyncOfflineActionInput[]) => {
+        await supabase.functions.invoke('sync-offline-actions', {
+          body: { actions }
+        });
         await queryClient.invalidateQueries({ queryKey: ['sync-queue'] });
       }
     }),
