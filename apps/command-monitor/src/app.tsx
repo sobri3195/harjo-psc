@@ -1,8 +1,16 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { Route, Routes, NavLink, Navigate } from 'react-router-dom';
 import { Bell, Search, Siren, Ambulance, Activity, BarChart3, Megaphone, ShieldCheck, Users, ClipboardList, LogIn } from 'lucide-react';
 import { SectionCard, SkeletonBlock, StatusBadge } from '@harjo/ui';
-import { useAuth, useEmergencyReports, useUserRole } from '@harjo/lib';
+import {
+  useAmbulanceTracking,
+  useAuth,
+  useDispatchNearestAmbulance,
+  useEmergencyTimeline,
+  useRealtimeAmbulanceTracking,
+  useRealtimeEmergencyReports,
+  useUserRole
+} from '@harjo/lib';
 
 const menu = [
   { label: 'Live Command Center', path: '/command-monitor/live-command-center', icon: Siren },
@@ -76,32 +84,96 @@ function Guard({ children }: { children: React.ReactNode }) {
 }
 
 function LiveCommandCenterPage() {
-  const { data } = useEmergencyReports();
-  const active = (data ?? []).filter((item) => !['completed', 'cancelled'].includes(item.status));
+  const [criticalToast, setCriticalToast] = useState<string | null>(null);
+  const { data: reports = [], isLoading: reportsLoading, error: reportsError } = useRealtimeEmergencyReports({
+    onCritical: (report) => {
+      setCriticalToast(`🚨 CRITICAL: ${report.type}`);
+      window.setTimeout(() => setCriticalToast(null), 4000);
+    }
+  });
+  const { markers } = useRealtimeAmbulanceTracking(1000);
+  const ambulanceSnapshot = useAmbulanceTracking();
+  const dispatchNearest = useDispatchNearestAmbulance();
+
+  const active = reports.filter((item) => !['completed', 'cancelled'].includes(item.status));
+  const pending = active.filter((item) => ['reported', 'dispatching'].includes(item.status));
+  const critical = active.filter((item) => item.severity === 'kritis');
+  const activeDispatches = active.filter((item) => ['ambulance_assigned', 'en_route', 'on_scene', 'transporting'].includes(item.status));
+
+  const avgResponse = useMemo(() => {
+    const dispatchRows = (ambulanceSnapshot.data ?? []).filter((row) => typeof row.updated_at === 'string');
+    if (!dispatchRows.length) return 'n/a';
+    const avgMinutes = Math.round(
+      dispatchRows.reduce((acc, row) => acc + (Date.now() - new Date(String(row.updated_at)).getTime()) / 60000, 0) / dispatchRows.length
+    );
+    return `${Math.max(avgMinutes, 1)}m`;
+  }, [ambulanceSnapshot.data]);
+
+  const firstPending = pending[0];
+  const timeline = useEmergencyTimeline(firstPending?.id);
 
   return (
     <Layout>
       <section className="space-y-4">
         <h1 className="text-2xl font-semibold text-slate-900">Live Command Center</h1>
+
+        {criticalToast ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700">{criticalToast}</div> : null}
+        {reportsError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Realtime error: {reportsError.message}</div> : null}
+
         <div className="grid grid-cols-5 gap-3">
           {[
-            ['Active emergencies', String(active.length)],
-            ['Pending dispatch', String(active.filter((x) => x.status === 'dispatching').length)],
-            ['Ambulance available', '14'],
-            ['Critical cases', String(active.filter((x) => x.severity === 'kritis').length)],
-            ['Avg response', '8m']
+            ['Pending reports', String(pending.length)],
+            ['Critical cases', String(critical.length)],
+            ['Ambulances available', String(markers.filter((x) => !x.isOffline && x.status === 'available').length)],
+            ['Average response', avgResponse],
+            ['Active dispatches', String(activeDispatches.length)]
           ].map(([label, value]) => (
             <SectionCard key={label} title={String(value)} subtitle={String(label)}><div /></SectionCard>
           ))}
         </div>
+
         <div className="grid grid-cols-[1fr_360px] gap-4">
-          <SectionCard title="Live Map" subtitle="Emergency marker • Ambulance marker • Hospital marker • Route line">
-            <div className="h-[420px] rounded-2xl bg-slate-100 p-4 text-sm text-slate-500">Map area (lazy-loaded map integration target)</div>
+          <SectionCard title="Live Map" subtitle="Emergency markers + ambulance markers + route lines (demo)">
+            <div className="h-[420px] space-y-3 overflow-auto rounded-2xl bg-slate-100 p-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-700">Emergency markers</p>
+              {active.slice(0, 8).map((incident) => (
+                <p key={incident.id}>📍 {incident.type} ({incident.severity}) - {incident.latitude.toFixed(4)}, {incident.longitude.toFixed(4)}</p>
+              ))}
+              <p className="pt-2 font-medium text-slate-700">Ambulance markers</p>
+              {markers.slice(0, 8).map((marker) => (
+                <p key={marker.ambulanceId}>🚑 {marker.ambulanceId} - {marker.status} {marker.isOffline ? '(offline)' : '(online)'} @ {marker.latitude.toFixed(4)}, {marker.longitude.toFixed(4)}</p>
+              ))}
+              <p className="pt-2 font-medium text-slate-700">Route lines</p>
+              {active.slice(0, 3).map((incident) => (
+                <p key={`route-${incident.id}`}>↔ Route candidate for {incident.type} ({incident.status})</p>
+              ))}
+            </div>
           </SectionCard>
+
           <div className="space-y-4">
-            <SectionCard title="Active incidents">
+            <SectionCard
+              title="Incident list"
+              subtitle="Realtime + severity sorting"
+              action={
+                firstPending ? (
+                  <button
+                    className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                    disabled={dispatchNearest.isPending}
+                    onClick={() => dispatchNearest.mutate({
+                      emergency_report_id: firstPending.id,
+                      latitude: firstPending.latitude,
+                      longitude: firstPending.longitude,
+                      severity: firstPending.severity
+                    })}
+                  >
+                    {dispatchNearest.isPending ? 'Dispatching...' : 'Auto Dispatch Nearest'}
+                  </button>
+                ) : null
+              }
+            >
+              {reportsLoading ? <SkeletonBlock className="h-32" /> : null}
               <div className="space-y-2">
-                {active.slice(0, 5).map((incident) => (
+                {active.slice(0, 6).map((incident) => (
                   <article key={incident.id} className="rounded-xl border border-slate-200 p-3 text-sm">
                     <div className="flex items-center justify-between"><p className="font-medium">{incident.type}</p><StatusBadge label={incident.severity} tone={incident.severity === 'kritis' ? 'danger' : 'warning'} /></div>
                     <p className="mt-1 text-xs text-slate-500">{incident.status} • {new Date(incident.createdAt).toLocaleString('id-ID')}</p>
@@ -109,7 +181,15 @@ function LiveCommandCenterPage() {
                 ))}
               </div>
             </SectionCard>
-            <SectionCard title="Alerts"><p className="text-sm text-slate-500">Tidak ada alert baru.</p></SectionCard>
+
+            <SectionCard title="Timeline" subtitle={firstPending ? `Emergency ${firstPending.id.slice(0, 8)}` : 'Pilih laporan aktif'}>
+              <div className="space-y-2 text-sm text-slate-600">
+                {(timeline.data ?? []).map((item) => (
+                  <p key={`${item.status}-${item.at}`}>• {item.status} — {new Date(item.at).toLocaleString('id-ID')}</p>
+                ))}
+                {!timeline.data?.length ? <p>Tidak ada event timeline.</p> : null}
+              </div>
+            </SectionCard>
           </div>
         </div>
       </section>
